@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isMultiplayerMode = false;
     let playerSymbol = null;
     let gameRoom = null;
+    // +++ NEW: Variable to hold the pending AI move timer +++
+    let aiMoveTimeout = null; 
 
     const winningConditions = [
         [0, 1, 2], [3, 4, 5], [6, 7, 8],
@@ -43,9 +45,13 @@ document.addEventListener('DOMContentLoaded', () => {
     difficultyButtons.forEach(button => button.addEventListener('click', handleDifficultyChange));
     multiplayerButton.addEventListener('click', findMultiplayerGame);
 
-    // --- STATE MANAGEMENT (REFACTORED FOR STABILITY) ---
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            handleRestartGame();
+        }
+    });
 
-    // This is now the single point of truth for leaving an online game.
+    // --- STATE MANAGEMENT ---
     function leaveMultiplayer() {
         if (isMultiplayerMode) {
             socket.emit('leaveGame');
@@ -55,26 +61,19 @@ document.addEventListener('DOMContentLoaded', () => {
         playerSymbol = null;
     }
     
-    // This is the single point of truth for starting ANY new game.
     function setupNewGame(options) {
-        leaveMultiplayer(); // Always leave any online game before starting a new one.
-
-        // Set game mode based on options
+        leaveMultiplayer();
         isMultiplayerMode = options.isMultiplayer || false;
         isTwoPlayerMode = options.isTwoPlayer || false;
         if(options.difficulty) {
              difficulty = options.difficulty;
         }
-
-        // Apply UI classes
         body.classList.toggle('two-player-mode', !isMultiplayerMode && isTwoPlayerMode);
         body.classList.toggle('single-player-mode', !isMultiplayerMode && !isTwoPlayerMode);
-
-        internalRestart(); // Reset the board and all state variables
+        internalRestart();
     }
 
     function togglePlayerMode() {
-        // This button now only toggles between the two LOCAL modes.
         setupNewGame({ isTwoPlayer: !isTwoPlayerMode });
     }
 
@@ -87,10 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function findMultiplayerGame() {
         leaveMultiplayer();
-        isMultiplayerMode = true; // Set flag before starting
+        isMultiplayerMode = true;
         socket.emit('findGame');
-
-        // Update UI immediately for waiting state
         body.classList.remove('single-player-mode', 'two-player-mode');
         statusDisplay.innerHTML = "Looking for an opponent...";
         multiplayerButton.classList.add('waiting');
@@ -101,11 +98,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isMultiplayerMode) {
             socket.emit('restartRequest', { room: gameRoom });
         } else {
-            internalRestart(); // Local games restart instantly
+            // For solo mode, this directly and safely resets the game.
+            internalRestart();
         }
     }
 
+    // --- MODIFIED --- This function is now the master reset for everything.
     function internalRestart() {
+        // --- NEW: Immediately cancel any pending AI move before doing anything else. ---
+        if (aiMoveTimeout) {
+            clearTimeout(aiMoveTimeout);
+            aiMoveTimeout = null;
+        }
+
         gameActive = true;
         currentPlayer = "X";
         gameState.fill("");
@@ -117,13 +122,13 @@ document.addEventListener('DOMContentLoaded', () => {
             cell.classList.remove('X', 'O');
         });
         
-        enableBoard();
+        enableBoard(); // Make sure the board is always playable after a reset.
         multiplayerButton.classList.remove('waiting');
         stopMoveTimer();
 
         if (isMultiplayerMode) {
-             if (playerSymbol) { // Game has started
-                statusDisplay.innerHTML = `Game started! You are ${playerSymbol}. It's X's turn.`;
+             if (playerSymbol) {
+                statusDisplay.innerHTML = `You are ${playerSymbol}. It's ${currentPlayer}'s Turn.`;
             }
         } else {
             statusDisplay.innerHTML = currentPlayerTurn();
@@ -131,9 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-
     // --- CORE GAMEPLAY ---
-
     function handleCellClick(e) {
         const clickedCell = e.target;
         const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
@@ -146,13 +149,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
+        // This part is for SOLO mode
         stopMoveTimer();
         makeMove(clickedCell, clickedCellIndex);
         if (!checkWin()) {
             changePlayer();
             if (!isTwoPlayerMode && currentPlayer === 'O' && gameActive) {
                 disableBoard();
-                setTimeout(computerMove, 700);
+                // --- MODIFIED: Store the timeout ID so we can cancel it. ---
+                aiMoveTimeout = setTimeout(computerMove, 700);
             }
         }
     }
@@ -189,7 +194,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (roundWon) {
             statusDisplay.innerHTML = `Player ${winningPlayer} has won!`;
-            gameActive = false; stopMoveTimer();
+            gameActive = false;
+            stopMoveTimer();
+            if (isMultiplayerMode) {
+                socket.emit('gameEnded', { room: gameRoom });
+            }
         }
         return roundWon;
     }
@@ -205,13 +214,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- SOCKET.IO EVENT HANDLERS ---
-    
     socket.on('waitingForOpponent', () => statusDisplay.innerHTML = "Waiting for an opponent...");
 
     socket.on('gameStart', (data) => {
         gameRoom = data.room;
         playerSymbol = data.symbol;
-        isMultiplayerMode = true; // This client is officially in an online game
+        isMultiplayerMode = true;
         internalRestart();
     });
 
@@ -222,10 +230,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!checkWin()) changePlayer();
     });
 
-    socket.on('resetBoard', () => {
+    socket.on('restartGame', (data) => {
         if (!isMultiplayerMode) return;
+        playerSymbol = data.symbol;
         internalRestart();
-        statusDisplay.innerHTML = `Game restarted! You are ${playerSymbol}. It's X's turn.`;
+    });
+    
+    socket.on('opponentForfeited', () => {
+        if (!isMultiplayerMode) return;
+        statusDisplay.innerHTML = "Opponent forfeited. You win!";
+        gameActive = false;
+        disableBoard();
+    });
+
+    socket.on('youForfeited', () => {
+        if (!isMultiplayerMode) return;
+        statusDisplay.innerHTML = "You forfeited the match.";
+        gameActive = false;
+        disableBoard();
     });
 
     socket.on('opponentDisconnected', () => {
@@ -251,6 +273,5 @@ document.addEventListener('DOMContentLoaded', () => {
     function enableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'auto'; }
 
     // --- INITIAL GAME SETUP ---
-    setupNewGame({ isTwoPlayer: true }); // Start in local 2-player mode by default.
-
+    setupNewNew({ isTwoPlayer: true });
 });
