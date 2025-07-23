@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Tic Tac Two</title>
+    <!-- Google Fonts: Poppins -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="main-container">
+        <header class="header">
+            <h1>Tic Tac Two</h1>
+            <div class="controls-container">
+                <button id="theme-toggle" class="icon-button" aria-label="Toggle theme">
+                    <i class="fas fa-sun"></i>
+                </button>
+                <!-- This button now switches between playing vs AI and Local 2-Player -->
+                <button id="player-mode-toggle" class="icon-button" aria-label="Toggle player mode">
+                    <span class="one-player-icon"><i class="fas fa-user"></i></span>
+                    <span class="two-player-icon"><i class="fas fa-user-friends"></i></span>
+                </button>
+                 <!-- NEW: Button to start an online match -->
+                <button id="multiplayer-button" class="icon-button" aria-label="Play Online">
+                    <i class="fas fa-globe"></i>
+                </button>
+            </div>
+        </header>
+
+        <div id="status-display" class="status-display">X's Turn</div>
+        <div id="timer-display" class="timer-display"></div>
+
+        <div id="game-grid" class="game-grid">
+            <div class="cell" data-index="0"></div>
+            <div class="cell" data-index="1"></div>
+            <div class="cell" data-index="2"></div>
+            <div class="cell" data-index="3"></div>
+            <div class="cell" data-index="4"></div>
+            <div class="cell" data-index="5"></div>
+            <div class="cell" data-index="6"></div>
+            <div class="cell" data-index="7"></div>
+            <div class="cell" data-index="8"></div>
+        </div>
+
+        <div class="bottom-controls">
+            <button id="restart-button" class="restart-button">
+                <i class="fas fa-redo-alt"></i> Restart
+            </button>
+            <div id="difficulty-controls" class="difficulty-controls">
+                <button class="difficulty-btn active" data-difficulty="easy">Easy</button>
+                <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+                <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="screen-too-narrow">
+        <p>Please rotate your device or use a larger screen for the best experience.</p>
+    </div>
+
+    <!-- NEW: Socket.IO client library -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- Your game script -->
+    <script src="script.js"></script>
+</body>
+</html>
