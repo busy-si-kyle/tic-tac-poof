@@ -51,9 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- STATE MANAGEMENT ---
-    // --- MODIFIED --- This now correctly stops the solo timer when leaving any mode.
     function leaveMultiplayer() {
-        stopMoveTimer(); // Stop any active solo mode timer.
+        stopMoveTimer();
         if (isMultiplayerMode) {
             socket.emit('leaveGame');
         }
@@ -85,8 +84,14 @@ document.addEventListener('DOMContentLoaded', () => {
         setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty });
     }
 
+    // --- MODIFIED --- This now clears the board before looking for a game.
     function findMultiplayerGame() {
-        leaveMultiplayer(); // This now correctly stops the solo timer.
+        leaveMultiplayer();
+        
+        // This is the key fix: Reset the entire game state and clear the board visually.
+        internalRestart();
+
+        // Now, set the UI to the "waiting" state.
         isMultiplayerMode = true;
         socket.emit('findGame');
         body.classList.remove('single-player-mode', 'two-player-mode');
@@ -122,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         enableBoard();
         multiplayerButton.classList.remove('waiting');
-        stopMoveTimer(); // This also helps ensure timers are stopped.
+        stopMoveTimer();
         
         statusDisplay.innerHTML = "X's Turn";
 
@@ -151,7 +156,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const clickedCell = e.target;
         const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
         if (gameState[clickedCellIndex] !== "" || !gameActive) return;
-        
+
         let isPlayersTurn = false;
         if (isMultiplayerMode) {
             isPlayersTurn = (currentPlayer === playerSymbol);
