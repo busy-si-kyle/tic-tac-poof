@@ -28,6 +28,9 @@ function handlePlayerLeave(socket) {
             const opponentId = gameRooms[room].players.find(id => id !== socket.id);
             if (opponentId) {
                 io.to(opponentId).emit('opponentDisconnected');
+                // Mark room as closed so no further actions can be taken
+                gameRooms[room].closed = true;
+                io.to(opponentId).emit('roomClosed');
             }
             delete gameRooms[room];
             console.log(`Cleaned up room ${room} after player left.`);
@@ -63,6 +66,17 @@ io.on('connection', (socket) => {
         io.to(data.room).emit('moveMade', data.move);
     });
 
+    // --- NEW: Multiplayer timeout event ---
+    socket.on('multiplayerTimeout', (data) => {
+        const room = data.room;
+        if (!gameRooms[room] || !gameRooms[room].gameActive) return;
+        gameRooms[room].gameActive = false;
+        const players = gameRooms[room].players;
+        const loser = socket.id;
+        const winner = players.find(id => id !== loser);
+        io.to(room).emit('multiplayerTimeout', { loser, winner });
+    });
+
     socket.on('gameEnded', (data) => {
         if (gameRooms[data.room]) {
             console.log(`Game ended naturally in room ${data.room}`);
@@ -74,7 +88,11 @@ io.on('connection', (socket) => {
     socket.on('restartRequest', (data) => {
         const room = data.room;
         if (!gameRooms[room] || gameRooms[room].players.length !== 2) return;
-
+        // Prevent restart if room is closed
+        if (gameRooms[room].closed) {
+            io.to(socket.id).emit('roomClosed');
+            return;
+        }
         // --- STATE 1: FORFEIT ---
         // If the game is active, this request is a FORFEIT.
         if (gameRooms[room].gameActive) {
