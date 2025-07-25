@@ -22,10 +22,12 @@
                 <button id="theme-toggle" class="icon-button" aria-label="Toggle theme">
                     <i class="fas fa-sun"></i>
                 </button>
+                <!-- This button now switches between playing vs AI and Local 2-Player -->
                 <button id="player-mode-toggle" class="icon-button" aria-label="Toggle player mode">
                     <span class="one-player-icon"><i class="fas fa-user"></i></span>
                     <span class="two-player-icon"><i class="fas fa-user-friends"></i></span>
                 </button>
+                 <!-- NEW: Button to start an online match -->
                 <button id="multiplayer-button" class="icon-button" aria-label="Play Online">
                     <i class="fas fa-globe"></i>
                 </button>
@@ -52,7 +54,6 @@
                 <i class="fas fa-redo-alt"></i> Restart
             </button>
             <div id="difficulty-controls" class="difficulty-controls">
-                <div class="difficulty-slider"></div>
                 <button class="difficulty-btn active" data-difficulty="easy">Easy</button>
                 <button class="difficulty-btn" data-difficulty="medium">Medium</button>
                 <button class="difficulty-btn" data-difficulty="hard">Hard</button>
@@ -64,7 +65,9 @@
         <p>Please rotate your device or use a larger screen for the best experience.</p>
     </div>
 
+    <!-- NEW: Socket.IO client library -->
     <script src="/socket.io/socket.io.js"></script>
+    <!-- Your game script -->
     <script src="script.js"></script>
 </body>
 </html>
