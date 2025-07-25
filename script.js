@@ -51,7 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- STATE MANAGEMENT ---
+    // --- MODIFIED --- This now correctly stops the solo timer when leaving any mode.
     function leaveMultiplayer() {
+        stopMoveTimer(); // Stop any active solo mode timer.
         if (isMultiplayerMode) {
             socket.emit('leaveGame');
         }
@@ -84,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function findMultiplayerGame() {
-        leaveMultiplayer();
+        leaveMultiplayer(); // This now correctly stops the solo timer.
         isMultiplayerMode = true;
         socket.emit('findGame');
         body.classList.remove('single-player-mode', 'two-player-mode');
@@ -120,28 +122,26 @@ document.addEventListener('DOMContentLoaded', () => {
         
         enableBoard();
         multiplayerButton.classList.remove('waiting');
-        stopMoveTimer();
+        stopMoveTimer(); // This also helps ensure timers are stopped.
         
         statusDisplay.innerHTML = "X's Turn";
 
         if (isMultiplayerMode) {
-            // Multiplayer handles its own state
+             if (playerSymbol) {
+                statusDisplay.innerHTML = `You are ${playerSymbol}. It's ${currentPlayer}'s Turn.`;
+            }
         } else if (!isTwoPlayerMode) {
-            // Solo Mode: Randomize who is X
             playerSymbol = Math.random() < 0.5 ? 'X' : 'O';
             console.log(`New Solo Game. You are player: ${playerSymbol}`);
             
             if (currentPlayer !== playerSymbol) {
-                // Computer is X, it starts
                 statusDisplay.innerHTML = `Computer's Turn (${currentPlayer})`;
                 disableBoard();
                 aiMoveTimeout = setTimeout(computerMove, 800);
             } else {
-                // Player is X, it's their turn. No timer on the first move.
                 statusDisplay.innerHTML = `Your Turn (${currentPlayer})`;
             }
         } else {
-            // Local 2-player mode
             playerSymbol = null;
         }
     }
@@ -151,7 +151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const clickedCell = e.target;
         const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
         if (gameState[clickedCellIndex] !== "" || !gameActive) return;
-
+        
         let isPlayersTurn = false;
         if (isMultiplayerMode) {
             isPlayersTurn = (currentPlayer === playerSymbol);
@@ -174,7 +174,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function makeMove(cell, index, symbol) {
-        // Stop any active timer as soon as a move is made
         stopMoveTimer(); 
         
         const playerToUpdate = symbol;
@@ -237,7 +236,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 disableBoard();
                 aiMoveTimeout = setTimeout(computerMove, 700);
             } else {
-                // It's the human player's turn, so start their timer (if applicable)
                 startMoveTimer();
             }
         } else {
@@ -257,12 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- AI LOGIC & HELPER FUNCTIONS ---
     function toggleTheme(){ body.classList.toggle('dark-mode'); themeToggleButton.querySelector('i').classList.toggle('fa-sun'); themeToggleButton.querySelector('i').classList.toggle('fa-moon'); }
     
-    // --- MODIFIED --- This function now contains the specific logic for the hard mode timer.
     function startMoveTimer() {
         stopMoveTimer();
-        // Condition: Solo mode, hard difficulty, it's the player's turn, and game is active.
         if (!isTwoPlayerMode && difficulty === 'hard' && currentPlayer === playerSymbol && gameActive) {
-            // This is the key fix: DO NOT start the timer if the player is 'X' and they haven't made a move yet.
             const isFirstMoveAsX = (playerSymbol === 'X' && playerMoves['X'].length === 0);
             
             if (!isFirstMoveAsX) {
