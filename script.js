@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const multiplayerButton = document.getElementById('multiplayer-button');
     const difficultyControls = document.getElementById('difficulty-controls');
     const difficultyButtons = document.querySelectorAll('.difficulty-btn');
+    const difficultySlider = document.querySelector('.difficulty-slider'); // --- NEW ---
     const body = document.body;
 
     // --- Game State Variables ---
@@ -21,12 +22,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let gameState = ["", "", "", "", "", "", "", "", ""];
     let playerMoves = { 'X': [], 'O': [] };
     let removeSequenceStarted = false;
-    let moveTimer = null; // For solo mode only
+    let moveTimer = null;
     let isMultiplayerMode = false;
     let playerSymbol = null;
     let gameRoom = null;
     let aiMoveTimeout = null;
-    let multiplayerTimerInterval = null; // For multiplayer visuals only
+    let multiplayerTimerInterval = null;
 
     const winningConditions = [ [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6] ];
 
@@ -38,11 +39,30 @@ document.addEventListener('DOMContentLoaded', () => {
     difficultyButtons.forEach(button => button.addEventListener('click', handleDifficultyChange));
     multiplayerButton.addEventListener('click', findMultiplayerGame);
     document.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleRestartGame(); });
+    window.addEventListener('resize', updateSliderPosition); // --- NEW ---
 
+    // --- NEW / MODIFIED --- All logic for the slider is here
+    function updateSliderPosition() {
+        const activeButton = document.querySelector('.difficulty-btn.active');
+        if (activeButton) {
+            const width = activeButton.offsetWidth;
+            const position = activeButton.offsetLeft;
+            difficultySlider.style.width = `${width}px`;
+            difficultySlider.style.transform = `translateX(${position}px)`;
+        }
+    }
+
+    function handleDifficultyChange(e) {
+        const newDifficulty = e.target.getAttribute('data-difficulty');
+        difficultyButtons.forEach(btn => btn.classList.remove('active'));
+        e.target.classList.add('active');
+        updateSliderPosition(); // Move the slider
+        setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty });
+    }
+    
     // --- STATE MANAGEMENT & MODE SWITCHING ---
     function leaveMultiplayer() {
-        stopMoveTimer();
-        stopMultiplayerTimer();
+        stopMoveTimer(); stopMultiplayerTimer();
         if (isMultiplayerMode) { socket.emit('leaveGame'); }
         isMultiplayerMode = false; gameRoom = null; playerSymbol = null;
     }
@@ -54,11 +74,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if(options.difficulty) { difficulty = options.difficulty; }
         body.classList.toggle('two-player-mode', !isMultiplayerMode && isTwoPlayerMode);
         body.classList.toggle('single-player-mode', !isMultiplayerMode && !isTwoPlayerMode);
+        
+        // --- NEW --- Update slider position when switching to solo mode
+        if (!isTwoPlayerMode) {
+            setTimeout(updateSliderPosition, 0);
+        }
+
         internalRestart();
     }
 
     function togglePlayerMode() { setupNewGame({ isTwoPlayer: !isTwoPlayerMode }); }
-    function handleDifficultyChange(e) { const newDifficulty = e.target.getAttribute('data-difficulty'); difficultyButtons.forEach(btn => btn.classList.remove('active')); e.target.classList.add('active'); setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty }); }
     function findMultiplayerGame() { leaveMultiplayer(); internalRestart(); isMultiplayerMode = true; socket.emit('findGame'); body.classList.remove('single-player-mode', 'two-player-mode'); statusDisplay.innerHTML = "Looking for an opponent..."; multiplayerButton.classList.add('waiting'); disableBoard(); }
     function handleRestartGame() { if (isMultiplayerMode) { socket.emit('restartRequest', { room: gameRoom }); } else { internalRestart(); } }
 
@@ -86,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { isPlayersTurn = true; }
         if (!isPlayersTurn) return;
         if (isMultiplayerMode) {
-            stopMultiplayerTimer(); // Stop timer immediately on click
+            stopMultiplayerTimer();
             socket.emit('makeMove', { room: gameRoom, move: { index: clickedCellIndex, symbol: playerSymbol } });
         } else { makeMove(clickedCell, clickedCellIndex, currentPlayer); if (!checkWin()) { changePlayer(); } }
     }
@@ -141,47 +166,11 @@ document.addEventListener('DOMContentLoaded', () => {
     socket.on('gameStart', (data) => { gameRoom = data.room; playerSymbol = data.symbol; isMultiplayerMode = true; internalRestart(); });
     socket.on('moveMade', (move) => { if (!isMultiplayerMode) return; const cell = document.querySelector(`[data-index='${move.index}']`); makeMove(cell, move.index, move.symbol); if (!checkWin()){} });
     socket.on('restartGame', (data) => { if (!isMultiplayerMode) return; playerSymbol = data.symbol; internalRestart(); });
-    
-    socket.on('newTurn', (data) => {
-        if (!isMultiplayerMode) return;
-        currentPlayer = data.symbol;
-        const isMyTurn = socket.id === data.currentPlayerId;
-        statusDisplay.innerHTML = isMyTurn ? `Your Turn (${currentPlayer})` : `Opponent's Turn (${currentPlayer})`;
-    });
+    socket.on('newTurn', (data) => { if (!isMultiplayerMode) return; currentPlayer = data.symbol; const isMyTurn = socket.id === data.currentPlayerId; statusDisplay.innerHTML = isMyTurn ? `Your Turn (${currentPlayer})` : `Opponent's Turn (${currentPlayer})`; });
+    socket.on('startTimer', (data) => { if (!isMultiplayerMode) return; startMultiplayerTimer(data.duration); });
+    socket.on('gameOver', (data) => { if (!isMultiplayerMode) return; gameActive = false; stopMultiplayerTimer(); disableBoard(); const isWinner = socket.id === data.winnerId; let message = ""; switch(data.reason) { case 'win': message = isWinner ? "You have won!" : "You have lost!"; break; case 'timeout': message = isWinner ? "You won on time!" : "You lost on time."; break; case 'forfeit': message = isWinner ? "Opponent forfeited. You win!" : "You forfeited the match."; break; case 'disconnect': message = isWinner ? "Opponent disconnected. You win!" : "Game ended."; break; } statusDisplay.innerHTML = message; });
 
-    socket.on('startTimer', (data) => {
-        if (!isMultiplayerMode) return;
-        startMultiplayerTimer(data.duration);
-    });
-
-    // --- NEW --- Centralized handler for all game end scenarios
-    socket.on('gameOver', (data) => {
-        if (!isMultiplayerMode) return;
-        gameActive = false;
-        stopMultiplayerTimer();
-        disableBoard();
-        
-        const isWinner = socket.id === data.winnerId;
-        let message = "";
-
-        switch(data.reason) {
-            case 'win':
-                message = isWinner ? "You have won!" : "You have lost!";
-                break;
-            case 'timeout':
-                message = isWinner ? "You won on time!" : "You lost on time.";
-                break;
-            case 'forfeit':
-                message = isWinner ? "Opponent forfeited. You win!" : "You forfeited the match.";
-                break;
-            case 'disconnect':
-                message = isWinner ? "Opponent disconnected. You win!" : "Game ended.";
-                break;
-        }
-        statusDisplay.innerHTML = message;
-    });
-
-    // --- AI LOGIC & HELPERS (UNCHANGED) ---
+    // --- AI LOGIC & HELPERS ---
     function toggleTheme(){ body.classList.toggle('dark-mode'); themeToggleButton.querySelector('i').classList.toggle('fa-sun'); themeToggleButton.querySelector('i').classList.toggle('fa-moon'); }
     function startMoveTimer() { stopMoveTimer(); if (!isTwoPlayerMode && difficulty === 'hard' && currentPlayer === playerSymbol && gameActive) { const isFirstMoveAsX = (playerSymbol === 'X' && playerMoves['X'].length === 0); if (!isFirstMoveAsX) { timerDisplay.classList.add('visible'); let timeLeft = 3; timerDisplay.innerHTML = `Time left: ${timeLeft}`; moveTimer = setInterval(() => { timeLeft--; timerDisplay.innerHTML = `Time left: ${timeLeft}`; if (timeLeft <= 0) { stopMoveTimer(); gameActive = false; statusDisplay.innerHTML = "Time's up! Computer wins!"; disableBoard(); } }, 1000); } } }
     function stopMoveTimer(){ clearInterval(moveTimer); moveTimer = null; if(timerDisplay) { timerDisplay.classList.remove('visible'); } }
@@ -195,5 +184,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function disableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'none'; }
     function enableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'auto'; }
     
+    // --- INITIAL GAME SETUP ---
     setupNewGame({ isTwoPlayer: true });
+    updateSliderPosition(); // Call on initial load
+
 });
