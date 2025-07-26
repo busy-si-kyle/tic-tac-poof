@@ -12,6 +12,7 @@
     --player-x-color: #3498db;
     --player-o-color: #e74c3c;
     --active-color: #2ecc71;
+    --highlight-color: #f1c40f; /* NEW: Color for the player count */
     --transition-speed: 0.3s;
     --font-family: 'Poppins', sans-serif;
 }
@@ -153,10 +154,10 @@ body.dark-mode .timer-display {
 
 .bottom-controls {
     display: flex;
-    justify-content: center;
+    justify-content: center; /* MODIFIED: Center content for when only restart is visible */
     align-items: center;
     width: 100%;
-    gap: 0.5rem;
+    gap: 1rem; /* MODIFIED: Add more gap for the new element */
     flex-wrap: nowrap;
     min-height: 60px; 
 }
@@ -181,6 +182,31 @@ body.dark-mode .restart-button {
     box-shadow: -7px -7px 14px var(--shadow-dark-1), 7px 7px 14px var(--shadow-dark-2);
     color: var(--primary-color-dark);
 }
+
+/* --- NEW STYLES FOR ONLINE COUNTER --- */
+.online-counter {
+    display: none; /* Hidden by default */
+    align-items: center;
+    font-size: 0.9rem;
+    color: var(--primary-color-light);
+    flex-shrink: 0;
+}
+body.dark-mode .online-counter {
+    color: var(--primary-color-dark);
+}
+.online-counter .count {
+    font-weight: bold;
+    color: var(--highlight-color);
+    margin-left: 0.3rem;
+}
+body.multiplayer-mode .online-counter {
+    display: flex; /* Visible only in multiplayer mode */
+}
+body.multiplayer-mode .difficulty-controls {
+    display: none; /* Hide difficulty when multiplayer */
+}
+/* --- END NEW STYLES --- */
+
 
 /* --- MODIFIED --- This is the container for the slider and buttons */
 .difficulty-controls {
@@ -253,6 +279,11 @@ body.single-player-mode #difficulty-controls {
     opacity: 1;
     transition: opacity 0.2s ease;
 }
+/* Justify content when difficulty controls are visible */
+body.single-player-mode .bottom-controls {
+    justify-content: space-between;
+}
+
 
 .screen-too-narrow {
     display: none;
