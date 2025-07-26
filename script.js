@@ -21,20 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let gameState = ["", "", "", "", "", "", "", "", ""];
     let playerMoves = { 'X': [], 'O': [] };
     let removeSequenceStarted = false;
-    let moveTimer = null;
+    let moveTimer = null; // For solo mode only
     let isMultiplayerMode = false;
     let playerSymbol = null;
     let gameRoom = null;
     let aiMoveTimeout = null;
+    let multiplayerTimerInterval = null; // For multiplayer visuals only
 
-    const winningConditions = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8],
-        [0, 3, 6], [1, 4, 7], [2, 5, 8],
-        [0, 4, 8], [2, 4, 6]
-    ];
-
-    const winningMessage = () => `Player ${currentPlayer} has won!`;
-    const currentPlayerTurn = () => `${currentPlayer}'s Turn`;
+    const winningConditions = [ [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6] ];
 
     // --- Event Listeners ---
     cells.forEach(cell => cell.addEventListener('click', handleCellClick));
@@ -43,268 +37,155 @@ document.addEventListener('DOMContentLoaded', () => {
     playerModeToggleButton.addEventListener('click', togglePlayerMode);
     difficultyButtons.forEach(button => button.addEventListener('click', handleDifficultyChange));
     multiplayerButton.addEventListener('click', findMultiplayerGame);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleRestartGame(); });
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            handleRestartGame();
-        }
-    });
-
-    // --- STATE MANAGEMENT ---
+    // --- STATE MANAGEMENT & MODE SWITCHING ---
     function leaveMultiplayer() {
         stopMoveTimer();
-        if (isMultiplayerMode) {
-            socket.emit('leaveGame');
-        }
-        isMultiplayerMode = false;
-        gameRoom = null;
-        playerSymbol = null;
+        stopMultiplayerTimer();
+        if (isMultiplayerMode) { socket.emit('leaveGame'); }
+        isMultiplayerMode = false; gameRoom = null; playerSymbol = null;
     }
     
     function setupNewGame(options) {
         leaveMultiplayer();
         isMultiplayerMode = options.isMultiplayer || false;
         isTwoPlayerMode = options.isTwoPlayer || false;
-        if(options.difficulty) {
-             difficulty = options.difficulty;
-        }
+        if(options.difficulty) { difficulty = options.difficulty; }
         body.classList.toggle('two-player-mode', !isMultiplayerMode && isTwoPlayerMode);
         body.classList.toggle('single-player-mode', !isMultiplayerMode && !isTwoPlayerMode);
         internalRestart();
     }
 
-    function togglePlayerMode() {
-        setupNewGame({ isTwoPlayer: !isTwoPlayerMode });
-    }
-
-    function handleDifficultyChange(e) {
-        const newDifficulty = e.target.getAttribute('data-difficulty');
-        difficultyButtons.forEach(btn => btn.classList.remove('active'));
-        e.target.classList.add('active');
-        setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty });
-    }
-
-    // --- MODIFIED --- This now clears the board before looking for a game.
-    function findMultiplayerGame() {
-        leaveMultiplayer();
-        
-        // This is the key fix: Reset the entire game state and clear the board visually.
-        internalRestart();
-
-        // Now, set the UI to the "waiting" state.
-        isMultiplayerMode = true;
-        socket.emit('findGame');
-        body.classList.remove('single-player-mode', 'two-player-mode');
-        statusDisplay.innerHTML = "Looking for an opponent...";
-        multiplayerButton.classList.add('waiting');
-        disableBoard();
-    }
-    
-    function handleRestartGame() {
-        if (isMultiplayerMode) {
-            socket.emit('restartRequest', { room: gameRoom });
-        } else {
-            internalRestart();
-        }
-    }
+    function togglePlayerMode() { setupNewGame({ isTwoPlayer: !isTwoPlayerMode }); }
+    function handleDifficultyChange(e) { const newDifficulty = e.target.getAttribute('data-difficulty'); difficultyButtons.forEach(btn => btn.classList.remove('active')); e.target.classList.add('active'); setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty }); }
+    function findMultiplayerGame() { leaveMultiplayer(); internalRestart(); isMultiplayerMode = true; socket.emit('findGame'); body.classList.remove('single-player-mode', 'two-player-mode'); statusDisplay.innerHTML = "Looking for an opponent..."; multiplayerButton.classList.add('waiting'); disableBoard(); }
+    function handleRestartGame() { if (isMultiplayerMode) { socket.emit('restartRequest', { room: gameRoom }); } else { internalRestart(); } }
 
     function internalRestart() {
-        if (aiMoveTimeout) {
-            clearTimeout(aiMoveTimeout);
-            aiMoveTimeout = null;
-        }
-
-        gameActive = true;
-        currentPlayer = "X";
-        gameState.fill("");
-        playerMoves = { 'X': [], 'O': [] };
-        removeSequenceStarted = false;
-        
-        cells.forEach(cell => {
-            cell.innerHTML = "";
-            cell.classList.remove('X', 'O');
-        });
-        
-        enableBoard();
-        multiplayerButton.classList.remove('waiting');
-        stopMoveTimer();
-        
+        if (aiMoveTimeout) { clearTimeout(aiMoveTimeout); aiMoveTimeout = null; }
+        gameActive = true; currentPlayer = "X"; gameState.fill(""); playerMoves = { 'X': [], 'O': [] }; removeSequenceStarted = false;
+        cells.forEach(cell => { cell.innerHTML = ""; cell.classList.remove('X', 'O'); });
+        enableBoard(); multiplayerButton.classList.remove('waiting'); stopMoveTimer(); stopMultiplayerTimer();
         statusDisplay.innerHTML = "X's Turn";
-
-        if (isMultiplayerMode) {
-             if (playerSymbol) {
-                statusDisplay.innerHTML = `You are ${playerSymbol}. It's ${currentPlayer}'s Turn.`;
-            }
+        if (isMultiplayerMode) { if (playerSymbol) { statusDisplay.innerHTML = `You are ${playerSymbol}. Waiting for game...`; }
         } else if (!isTwoPlayerMode) {
             playerSymbol = Math.random() < 0.5 ? 'X' : 'O';
-            console.log(`New Solo Game. You are player: ${playerSymbol}`);
-            
-            if (currentPlayer !== playerSymbol) {
-                statusDisplay.innerHTML = `Computer's Turn (${currentPlayer})`;
-                disableBoard();
-                aiMoveTimeout = setTimeout(computerMove, 800);
-            } else {
-                statusDisplay.innerHTML = `Your Turn (${currentPlayer})`;
-            }
-        } else {
-            playerSymbol = null;
-        }
+            if (currentPlayer !== playerSymbol) { statusDisplay.innerHTML = `Computer's Turn (${currentPlayer})`; disableBoard(); aiMoveTimeout = setTimeout(computerMove, 800);
+            } else { statusDisplay.innerHTML = `Your Turn (${currentPlayer})`; }
+        } else { playerSymbol = null; }
     }
 
     // --- CORE GAMEPLAY ---
     function handleCellClick(e) {
-        const clickedCell = e.target;
-        const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
+        const clickedCell = e.target; const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
         if (gameState[clickedCellIndex] !== "" || !gameActive) return;
-
         let isPlayersTurn = false;
-        if (isMultiplayerMode) {
-            isPlayersTurn = (currentPlayer === playerSymbol);
-        } else if (!isTwoPlayerMode) {
-            isPlayersTurn = (currentPlayer === playerSymbol);
-        } else {
-            isPlayersTurn = true;
-        }
-
+        if (isMultiplayerMode) { isPlayersTurn = (currentPlayer === playerSymbol);
+        } else if (!isTwoPlayerMode) { isPlayersTurn = (currentPlayer === playerSymbol);
+        } else { isPlayersTurn = true; }
         if (!isPlayersTurn) return;
-        
         if (isMultiplayerMode) {
+            stopMultiplayerTimer(); // Stop timer immediately on click
             socket.emit('makeMove', { room: gameRoom, move: { index: clickedCellIndex, symbol: playerSymbol } });
-        } else {
-            makeMove(clickedCell, clickedCellIndex, currentPlayer);
-            if (!checkWin()) {
-                changePlayer();
-            }
-        }
+        } else { makeMove(clickedCell, clickedCellIndex, currentPlayer); if (!checkWin()) { changePlayer(); } }
     }
     
     function makeMove(cell, index, symbol) {
-        stopMoveTimer(); 
-        
-        const playerToUpdate = symbol;
-        gameState[index] = playerToUpdate;
-        cell.innerHTML = playerToUpdate;
-        cell.classList.add(playerToUpdate);
-        playerMoves[playerToUpdate].push(index);
-
+        stopMoveTimer();
+        gameState[index] = symbol; cell.innerHTML = symbol; cell.classList.add(symbol); playerMoves[symbol].push(index);
         if (!removeSequenceStarted && playerMoves['O'].length === 3) removeSequenceStarted = true;
-        
-        if (removeSequenceStarted) {
-            const opponent = playerToUpdate === 'X' ? 'O' : 'X';
-            if (playerMoves[opponent].length > 0) {
-                const oldestMoveIndex = playerMoves[opponent].shift();
-                gameState[oldestMoveIndex] = "";
-                const oldestCell = document.querySelector(`[data-index='${oldestMoveIndex}']`);
-                oldestCell.innerHTML = "";
-                oldestCell.classList.remove('X', 'O');
-                oldestCell.classList.add('fade-out');
-                setTimeout(() => oldestCell.classList.remove('fade-out'), 500);
-            }
-        }
+        if (removeSequenceStarted) { const opponent = symbol === 'X' ? 'O' : 'X'; if (playerMoves[opponent].length > 0) { const oldestMoveIndex = playerMoves[opponent].shift(); gameState[oldestMoveIndex] = ""; const oldestCell = document.querySelector(`[data-index='${oldestMoveIndex}']`); oldestCell.innerHTML = ""; oldestCell.classList.remove('X', 'O'); oldestCell.classList.add('fade-out'); setTimeout(() => oldestCell.classList.remove('fade-out'), 500); } }
     }
 
     function checkWin() {
-        let roundWon = false;
-        let winningPlayer = null;
-        for (const condition of winningConditions) {
-            const [a, b, c] = condition;
-            if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) {
-                roundWon = true; winningPlayer = gameState[a]; break;
-            }
-        }
+        let roundWon = false; let winningPlayer = null;
+        for (const condition of winningConditions) { const [a, b, c] = condition; if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) { roundWon = true; winningPlayer = gameState[a]; break; } }
         if (roundWon) {
-            let message;
+            gameActive = false; stopMoveTimer(); stopMultiplayerTimer();
             if (isMultiplayerMode) {
-                 message = (winningPlayer === playerSymbol) ? "You have won!" : "You have lost!";
-            } else if (!isTwoPlayerMode) {
-                 message = (winningPlayer === playerSymbol) ? "You have won!" : "Computer has won!";
+                socket.emit('gameEnded');
             } else {
-                 message = `Player ${winningPlayer} has won!`;
+                 const message = (!isTwoPlayerMode && winningPlayer === playerSymbol) ? "You have won!" : (!isTwoPlayerMode) ? "Computer has won!" : `Player ${winningPlayer} has won!`;
+                 statusDisplay.innerHTML = message;
             }
-            statusDisplay.innerHTML = message;
-            gameActive = false;
-            stopMoveTimer();
-            if (isMultiplayerMode) { socket.emit('gameEnded', { room: gameRoom }); }
         }
         return roundWon;
     }
 
     function changePlayer() {
         currentPlayer = currentPlayer === "X" ? "O" : "X";
-        
-        if (isMultiplayerMode) {
-            statusDisplay.innerHTML = (currentPlayer === playerSymbol) ? "Your Turn" : `Opponent's Turn (${currentPlayer})`;
-        } else if (!isTwoPlayerMode) {
+        if (!isTwoPlayerMode && !isMultiplayerMode) {
             statusDisplay.innerHTML = (currentPlayer === playerSymbol) ? `Your Turn (${currentPlayer})` : `Computer's Turn (${currentPlayer})`;
-            
-            if (currentPlayer !== playerSymbol && gameActive) {
-                disableBoard();
-                aiMoveTimeout = setTimeout(computerMove, 700);
-            } else {
-                startMoveTimer();
-            }
-        } else {
-            statusDisplay.innerHTML = currentPlayerTurn();
-        }
+            if (currentPlayer !== playerSymbol && gameActive) { disableBoard(); aiMoveTimeout = setTimeout(computerMove, 700);
+            } else { startMoveTimer(); }
+        } else if (isTwoPlayerMode && !isMultiplayerMode) { statusDisplay.innerHTML = `${currentPlayer}'s Turn`; }
     }
+
+    // --- Multiplayer Timer Visuals ---
+    function startMultiplayerTimer(duration) {
+        stopMultiplayerTimer();
+        let timeLeft = duration / 1000;
+        timerDisplay.classList.add('visible');
+        timerDisplay.innerHTML = `Time left: ${timeLeft}`;
+        multiplayerTimerInterval = setInterval(() => {
+            timeLeft--;
+            timerDisplay.innerHTML = `Time left: ${timeLeft}`;
+            if (timeLeft <= 0) stopMultiplayerTimer();
+        }, 1000);
+    }
+    function stopMultiplayerTimer() { clearInterval(multiplayerTimerInterval); multiplayerTimerInterval = null; if (timerDisplay) { timerDisplay.classList.remove('visible'); } }
 
     // --- SOCKET.IO EVENT HANDLERS ---
     socket.on('waitingForOpponent', () => statusDisplay.innerHTML = "Waiting for an opponent...");
     socket.on('gameStart', (data) => { gameRoom = data.room; playerSymbol = data.symbol; isMultiplayerMode = true; internalRestart(); });
-    socket.on('moveMade', (move) => { if (!isMultiplayerMode) return; const cell = document.querySelector(`[data-index='${move.index}']`); makeMove(cell, move.index, move.symbol); if (!checkWin()) changePlayer(); });
+    socket.on('moveMade', (move) => { if (!isMultiplayerMode) return; const cell = document.querySelector(`[data-index='${move.index}']`); makeMove(cell, move.index, move.symbol); if (!checkWin()){} });
     socket.on('restartGame', (data) => { if (!isMultiplayerMode) return; playerSymbol = data.symbol; internalRestart(); });
-    socket.on('opponentForfeited', () => { if (!isMultiplayerMode) return; statusDisplay.innerHTML = "Opponent forfeited. You win!"; gameActive = false; disableBoard(); });
-    socket.on('youForfeited', () => { if (!isMultiplayerMode) return; statusDisplay.innerHTML = "You forfeited the match."; gameActive = false; disableBoard(); });
-    socket.on('opponentDisconnected', () => { if (!isMultiplayerMode) return; gameActive = false; statusDisplay.innerHTML = "Opponent left. You win!"; leaveMultiplayer(); disableBoard(); });
+    
+    socket.on('newTurn', (data) => {
+        if (!isMultiplayerMode) return;
+        currentPlayer = data.symbol;
+        const isMyTurn = socket.id === data.currentPlayerId;
+        statusDisplay.innerHTML = isMyTurn ? `Your Turn (${currentPlayer})` : `Opponent's Turn (${currentPlayer})`;
+    });
 
-    // --- AI LOGIC & HELPER FUNCTIONS ---
+    socket.on('startTimer', (data) => {
+        if (!isMultiplayerMode) return;
+        startMultiplayerTimer(data.duration);
+    });
+
+    // --- NEW --- Centralized handler for all game end scenarios
+    socket.on('gameOver', (data) => {
+        if (!isMultiplayerMode) return;
+        gameActive = false;
+        stopMultiplayerTimer();
+        disableBoard();
+        
+        const isWinner = socket.id === data.winnerId;
+        let message = "";
+
+        switch(data.reason) {
+            case 'win':
+                message = isWinner ? "You have won!" : "You have lost!";
+                break;
+            case 'timeout':
+                message = isWinner ? "You won on time!" : "You lost on time.";
+                break;
+            case 'forfeit':
+                message = isWinner ? "Opponent forfeited. You win!" : "You forfeited the match.";
+                break;
+            case 'disconnect':
+                message = isWinner ? "Opponent disconnected. You win!" : "Game ended.";
+                break;
+        }
+        statusDisplay.innerHTML = message;
+    });
+
+    // --- AI LOGIC & HELPERS (UNCHANGED) ---
     function toggleTheme(){ body.classList.toggle('dark-mode'); themeToggleButton.querySelector('i').classList.toggle('fa-sun'); themeToggleButton.querySelector('i').classList.toggle('fa-moon'); }
-    
-    function startMoveTimer() {
-        stopMoveTimer();
-        if (!isTwoPlayerMode && difficulty === 'hard' && currentPlayer === playerSymbol && gameActive) {
-            const isFirstMoveAsX = (playerSymbol === 'X' && playerMoves['X'].length === 0);
-            
-            if (!isFirstMoveAsX) {
-                timerDisplay.classList.add('visible');
-                let timeLeft = 3;
-                timerDisplay.innerHTML = `Time left: ${timeLeft}`;
-                moveTimer = setInterval(() => {
-                    timeLeft--;
-                    timerDisplay.innerHTML = `Time left: ${timeLeft}`;
-                    if (timeLeft <= 0) {
-                        stopMoveTimer();
-                        gameActive = false;
-                        statusDisplay.innerHTML = "Time's up! Computer wins!";
-                        disableBoard();
-                    }
-                }, 1000);
-            }
-        }
-    }
-
+    function startMoveTimer() { stopMoveTimer(); if (!isTwoPlayerMode && difficulty === 'hard' && currentPlayer === playerSymbol && gameActive) { const isFirstMoveAsX = (playerSymbol === 'X' && playerMoves['X'].length === 0); if (!isFirstMoveAsX) { timerDisplay.classList.add('visible'); let timeLeft = 3; timerDisplay.innerHTML = `Time left: ${timeLeft}`; moveTimer = setInterval(() => { timeLeft--; timerDisplay.innerHTML = `Time left: ${timeLeft}`; if (timeLeft <= 0) { stopMoveTimer(); gameActive = false; statusDisplay.innerHTML = "Time's up! Computer wins!"; disableBoard(); } }, 1000); } } }
     function stopMoveTimer(){ clearInterval(moveTimer); moveTimer = null; if(timerDisplay) { timerDisplay.classList.remove('visible'); } }
-    
-    function computerMove(){
-        const computerSymbol = (playerSymbol === 'X') ? 'O' : 'X';
-        let moveIndex; 
-        if (difficulty === 'hard') {
-            moveIndex = getHardMove(computerSymbol, playerSymbol);
-        } else if (difficulty === 'medium') {
-            moveIndex = getMediumMove(computerSymbol, playerSymbol);
-        } else {
-            moveIndex = getEasyMove(computerSymbol, playerSymbol);
-        }
-        if (moveIndex !== null && gameActive) {
-            const cellToPlay = document.querySelector(`[data-index='${moveIndex}']`);
-            makeMove(cellToPlay, moveIndex, computerSymbol);
-            if (!checkWin()) {
-                changePlayer();
-            }
-        }
-        enableBoard();
-    }
-    
+    function computerMove(){ const computerSymbol = (playerSymbol === 'X') ? 'O' : 'X'; let moveIndex; if (difficulty === 'hard') { moveIndex = getHardMove(computerSymbol, playerSymbol); } else if (difficulty === 'medium') { moveIndex = getMediumMove(computerSymbol, playerSymbol); } else { moveIndex = getEasyMove(computerSymbol, playerSymbol); } if (moveIndex !== null && gameActive) { const cellToPlay = document.querySelector(`[data-index='${moveIndex}']`); makeMove(cellToPlay, moveIndex, computerSymbol); if (!checkWin()) { changePlayer(); } } enableBoard(); }
     function getEasyMove(mySymbol, opponentSymbol){ const availableCells = getAvailableCells(gameState); if (Math.random() < 0.33) { const blockMove = findWinningOrBlockingMove(gameState, opponentSymbol); if (blockMove !== null) return blockMove; } return availableCells[Math.floor(Math.random() * availableCells.length)]; }
     function getMediumMove(mySymbol, opponentSymbol){ const winMove = findWinningOrBlockingMove(gameState, mySymbol); if (winMove !== null) return winMove; const blockMove = findWinningOrBlockingMove(gameState, opponentSymbol); if (blockMove !== null) return blockMove; if (gameState[4] === "") return 4; const availableCells = getAvailableCells(gameState); return availableCells[Math.floor(Math.random() * availableCells.length)]; }
     function getHardMove(mySymbol, opponentSymbol){ let move = findWinningOrBlockingMove(gameState, mySymbol); if (move !== null) return move; if (playerMoves[opponentSymbol].length === 3) { const oldestPlayerMove = playerMoves[opponentSymbol][0]; const blockableThreat = findValidThreats(gameState, opponentSymbol, oldestPlayerMove); if (blockableThreat !== null) { return blockableThreat; } const boardAfterRemoval = [...gameState]; boardAfterRemoval[oldestPlayerMove] = ''; const strategicWin = findWinningOrBlockingMove(boardAfterRemoval, mySymbol); if (strategicWin !== null && gameState[strategicWin] === '') { return strategicWin; } } move = findWinningOrBlockingMove(gameState, opponentSymbol); if (move !== null) return move; if (gameState[4] === "") return 4; const availableCells = getAvailableCells(gameState); return availableCells.length > 0 ? availableCells[Math.floor(Math.random() * availableCells.length)] : null; }
@@ -313,7 +194,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function getAvailableCells(board){ return board.map((val, index) => val === "" ? index : null).filter(val => val !== null); }
     function disableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'none'; }
     function enableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'auto'; }
-
-    // --- INITIAL GAME SETUP ---
+    
     setupNewGame({ isTwoPlayer: true });
 });
