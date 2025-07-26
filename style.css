@@ -27,7 +27,7 @@ body {
     background-color: var(--bg-color-light);
     color: var(--primary-color-light);
     transition: background-color var(--transition-speed), color var(--transition-speed);
-    overflow: hidden; /* Prevents scrolling */
+    overflow: hidden;
 }
 
 body.dark-mode {
@@ -40,7 +40,7 @@ body.dark-mode {
     flex-direction: column;
     align-items: center;
     gap: 1.5rem;
-    padding: 2rem;
+    padding: 1rem; /* Reduced padding for smaller screens */
     width: 100%;
     max-width: 400px;
 }
@@ -68,16 +68,16 @@ h1 {
     outline: none;
     cursor: pointer;
     font-size: 1.2rem;
-    width: 60px; /* Fixed width */
-    height: 60px; /* Fixed height */
+    width: 60px;
+    height: 60px;
     border-radius: 20px;
     background: var(--bg-color-light);
     box-shadow: -7px -7px 14px var(--shadow-light-1), 7px 7px 14px var(--shadow-light-2);
     transition: all var(--transition-speed) ease;
     color: var(--primary-color-light);
-    display: flex; /* Added for centering */
-    justify-content: center; /* Added for centering */
-    align-items: center; /* Added for centering */
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 body.dark-mode .icon-button {
@@ -107,10 +107,9 @@ body.two-player-mode #player-mode-toggle .two-player-icon { display: inline-bloc
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
-    gap: 15px;
-    /* Increased size */
-    width: clamp(330px, 90vw, 400px);
-    height: clamp(330px, 90vw, 400px);
+    gap: 10px; /* Slightly reduced gap */
+    width: clamp(280px, 90vw, 400px); /* Lowered the minimum size */
+    height: clamp(280px, 90vw, 400px); /* Lowered the minimum size */
 }
 
 .cell {
@@ -119,7 +118,7 @@ body.two-player-mode #player-mode-toggle .two-player-icon { display: inline-bloc
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 3.5rem; /* Increased font size for larger cells */
+    font-size: clamp(2.5rem, 15vw, 3.5rem); /* Responsive font size */
     font-weight: bold;
     cursor: pointer;
     border-radius: 15px;
@@ -161,23 +160,22 @@ body.dark-mode .cell.X, body.dark-mode .cell.O {
 .status-display {
     font-size: 1.5rem;
     font-weight: 500;
-    min-height: 27px; /* Reserve space */
+    min-height: 27px;
 }
 
-/* Timer styles */
 .timer-display {
     font-size: 1rem;
     color: var(--player-o-color);
-    min-height: 20px; /* Reserve space */
-    visibility: hidden; /* Use visibility to prevent layout shift */
+    min-height: 20px;
+    visibility: hidden;
 }
 .timer-display.visible {
-    visibility: visible; /* Show timer */
+    visibility: visible;
 }
-
 
 .bottom-controls {
     display: flex;
+    flex-wrap: wrap; /* Allow wrapping on small screens */
     justify-content: center;
     align-items: center;
     width: 100%;
@@ -253,9 +251,7 @@ body.dark-mode .difficulty-btn.active {
     box-shadow: -5px -5px 10px var(--shadow-dark-1), 5px 5px 10px var(--shadow-dark-2);
 }
 
-/* Hide difficulty controls by default */
 #difficulty-controls { display: none; }
-/* Show them in single player mode */
 body.single-player-mode #difficulty-controls { display: flex; }
 
 .screen-too-narrow {
@@ -264,50 +260,28 @@ body.single-player-mode #difficulty-controls { display: flex; }
     padding: 20px;
     font-size: 1.2rem;
 }
-@media (max-width: 380px) {
+/* --- MODIFIED --- Lowered the breakpoint to allow more mobile devices */
+@media (max-width: 320px) {
     .main-container { display: none; }
     .screen-too-narrow { display: block; }
 }
 
-/* --- ADDITIONS FOR MULTIPLAYER --- */
 #multiplayer-button {
-    color: var(--player-x-color); /* Give it a distinct color */
+    color: var(--player-x-color);
 }
-
 #multiplayer-button.waiting {
     animation: pulse 1.5s infinite;
 }
-
 @keyframes pulse {
-    0% {
-        transform: scale(1);
-        box-shadow: -7px -7px 14px var(--shadow-light-1), 7px 7px 14px var(--shadow-light-2);
-    }
-    50% {
-        transform: scale(1.05);
-        box-shadow: -9px -9px 18px var(--shadow-light-1), 9px 9px 18px var(--shadow-light-2);
-    }
-    100% {
-        transform: scale(1);
-        box-shadow: -7px -7px 14px var(--shadow-light-1), 7px 7px 14px var(--shadow-light-2);
-    }
+    0% { transform: scale(1); box-shadow: -7px -7px 14px var(--shadow-light-1), 7px 7px 14px var(--shadow-light-2); }
+    50% { transform: scale(1.05); box-shadow: -9px -9px 18px var(--shadow-light-1), 9px 9px 18px var(--shadow-light-2); }
+    100% { transform: scale(1); box-shadow: -7px -7px 14px var(--shadow-light-1), 7px 7px 14px var(--shadow-light-2); }
 }
-
 body.dark-mode #multiplayer-button.waiting {
     animation-name: pulse-dark;
 }
-
 @keyframes pulse-dark {
-    0% {
-        transform: scale(1);
-        box-shadow: -7px -7px 14px var(--shadow-dark-1), 7px 7px 14px var(--shadow-dark-2);
-    }
-    50% {
-        transform: scale(1.05);
-        box-shadow: -9px -9px 18px var(--shadow-dark-1), 9px 9px 18px var(--shadow-dark-2);
-    }
-    100% {
-        transform: scale(1);
-        box-shadow: -7px -7px 14px var(--shadow-dark-1), 7px 7px 14px var(--shadow-dark-2);
-    }
+    0% { transform: scale(1); box-shadow: -7px -7px 14px var(--shadow-dark-1), 7px 7px 14px var(--shadow-dark-2); }
+    50% { transform: scale(1.05); box-shadow: -9px -9px 18px var(--shadow-dark-1), 9px 9px 18px var(--shadow-dark-2); }
+    100% { transform: scale(1); box-shadow: -7px -7px 14px var(--shadow-dark-1), 7px 7px 14px var(--shadow-dark-2); }
 }
