@@ -7,6 +7,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 10000;
+const TURN_DURATION_MS = 3000; // --- MODIFIED --- 3 seconds per turn
 
 app.use(express.static(__dirname));
 
@@ -17,25 +18,78 @@ app.get('/', (req, res) => {
 let waitingPlayer = null;
 let gameRooms = {};
 
-function handlePlayerLeave(socket) {
-    console.log(`Handling departure for socket: ${socket.id}`);
-    if (waitingPlayer && waitingPlayer.id === socket.id) {
-        waitingPlayer = null;
-        console.log('The waiting player has left.');
+function clearRoomTimer(room) {
+    if (gameRooms[room] && gameRooms[room].timerId) {
+        clearTimeout(gameRooms[room].timerId);
+        gameRooms[room].timerId = null;
     }
+}
+
+function startNewTurn(room) {
+    clearRoomTimer(room);
+    const roomData = gameRooms[room];
+    if (!roomData || !roomData.gameActive) return;
+
+    roomData.turnCount++;
+    const currentPlayerIndex = roomData.players.indexOf(roomData.currentPlayer);
+    const nextPlayerIndex = (currentPlayerIndex + 1) % 2;
+    roomData.currentPlayer = roomData.players[nextPlayerIndex];
+    const currentPlayerSymbol = (nextPlayerIndex === 0) ? 'X' : 'O';
+    
+    io.to(room).emit('newTurn', { 
+        currentPlayerId: roomData.currentPlayer, 
+        symbol: currentPlayerSymbol 
+    });
+
+    if (roomData.turnCount > 1) {
+        io.to(roomData.currentPlayer).emit('startTimer', { duration: TURN_DURATION_MS });
+        roomData.timerId = setTimeout(() => {
+            handleGameOver(room, 'timeout');
+        }, TURN_DURATION_MS);
+    }
+}
+
+function handleGameOver(room, reason) {
+    const roomData = gameRooms[room];
+    if (!roomData || !roomData.gameActive) return;
+
+    roomData.gameActive = false;
+    clearRoomTimer(room);
+    
+    let winnerId, loserId;
+
+    if (reason === 'timeout') {
+        loserId = roomData.currentPlayer;
+        winnerId = roomData.players.find(id => id !== loserId);
+        console.log(`Timeout in room ${room}. Winner: ${winnerId}`);
+    } else if (reason === 'forfeit') {
+        loserId = roomData.lastActionBy;
+        winnerId = roomData.players.find(id => id !== loserId);
+        console.log(`Forfeit in room ${room}. Winner: ${winnerId}`);
+    } else if (reason === 'disconnect') {
+        loserId = roomData.lastActionBy;
+        winnerId = roomData.players.find(id => id !== loserId);
+        console.log(`Disconnect in room ${room}. Winner: ${winnerId}`);
+    } else { // Natural win
+        winnerId = roomData.lastActionBy;
+        loserId = roomData.players.find(id => id !== winnerId);
+    }
+
+    io.to(room).emit('gameOver', { winnerId, loserId, reason });
+}
+
+function handlePlayerLeave(socket) {
     for (const room in gameRooms) {
         if (gameRooms[room] && gameRooms[room].players.includes(socket.id)) {
-            const opponentId = gameRooms[room].players.find(id => id !== socket.id);
-            if (opponentId) {
-                io.to(opponentId).emit('opponentDisconnected');
-                // Mark room as closed so no further actions can be taken
-                gameRooms[room].closed = true;
-                io.to(opponentId).emit('roomClosed');
-            }
+            gameRooms[room].lastActionBy = socket.id;
+            handleGameOver(room, 'disconnect');
             delete gameRooms[room];
-            console.log(`Cleaned up room ${room} after player left.`);
+            console.log(`Cleaned up room ${room} after player disconnected.`);
             break;
         }
+    }
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+        waitingPlayer = null;
     }
 }
 
@@ -43,14 +97,26 @@ io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
     socket.on('findGame', () => {
-        console.log(`Player ${socket.id} is looking for a game.`);
         if (waitingPlayer) {
             const room = `room_${socket.id}_${waitingPlayer.id}`;
+            const playerX = waitingPlayer.id;
+            const playerO = socket.id;
             waitingPlayer.join(room);
             socket.join(room);
-            gameRooms[room] = { players: [waitingPlayer.id, socket.id], gameActive: true };
-            io.to(waitingPlayer.id).emit('gameStart', { symbol: 'X', room: room });
-            io.to(socket.id).emit('gameStart', { symbol: 'O', room: room });
+
+            gameRooms[room] = {
+                players: [playerX, playerO],
+                gameActive: true,
+                currentPlayer: playerX,
+                timerId: null,
+                turnCount: 1,
+                lastActionBy: null
+            };
+
+            io.to(playerX).emit('gameStart', { symbol: 'X', room: room });
+            io.to(playerO).emit('gameStart', { symbol: 'O', room: room });
+            io.to(room).emit('newTurn', { currentPlayerId: playerX, symbol: 'X' });
+            
             console.log(`Game started in room ${room}`);
             waitingPlayer = null;
         } else {
@@ -60,82 +126,49 @@ io.on('connection', (socket) => {
     });
 
     socket.on('makeMove', (data) => {
-        if (gameRooms[data.room]) {
-            gameRooms[data.room].gameActive = true;
+        const roomData = gameRooms[data.room];
+        if (roomData && roomData.gameActive && roomData.currentPlayer === socket.id) {
+            roomData.lastActionBy = socket.id;
+            io.to(data.room).emit('moveMade', data.move);
+            startNewTurn(data.room);
         }
-        io.to(data.room).emit('moveMade', data.move);
-    });
-
-    // --- NEW: Multiplayer timeout event ---
-    socket.on('multiplayerTimeout', (data) => {
-        const room = data.room;
-        if (!gameRooms[room] || !gameRooms[room].gameActive) return;
-        gameRooms[room].gameActive = false;
-        const players = gameRooms[room].players;
-        const loser = socket.id;
-        const winner = players.find(id => id !== loser);
-        io.to(room).emit('multiplayerTimeout', { loser, winner });
     });
 
     socket.on('gameEnded', (data) => {
-        if (gameRooms[data.room]) {
-            console.log(`Game ended naturally in room ${data.room}`);
-            gameRooms[data.room].gameActive = false;
+        const roomData = gameRooms[data.room];
+        if (roomData) {
+            roomData.lastActionBy = socket.id;
+            handleGameOver(data.room, 'win');
         }
     });
 
-    // --- MODIFIED --- This logic is now split into two distinct states.
     socket.on('restartRequest', (data) => {
         const room = data.room;
-        if (!gameRooms[room] || gameRooms[room].players.length !== 2) return;
-        // Prevent restart if room is closed
-        if (gameRooms[room].closed) {
-            io.to(socket.id).emit('roomClosed');
-            return;
-        }
-        // --- STATE 1: FORFEIT ---
-        // If the game is active, this request is a FORFEIT.
-        if (gameRooms[room].gameActive) {
-            const players = gameRooms[room].players;
-            const requestingPlayerId = socket.id;
-            const opponentId = players.find(id => id !== requestingPlayerId);
+        const roomData = gameRooms[room];
+        if (!roomData || roomData.players.length !== 2) return;
+        
+        clearRoomTimer(room);
+        roomData.lastActionBy = socket.id;
 
-            console.log(`Player ${requestingPlayerId} forfeited in room ${room}.`);
-            // Set the game to inactive so this block isn't triggered again.
-            gameRooms[room].gameActive = false;
-
-            // Tell the players the result. THE GAME STOPS HERE.
-            io.to(opponentId).emit('opponentForfeited');
-            io.to(requestingPlayerId).emit('youForfeited');
-
-        // --- STATE 2: PLAY AGAIN ---
-        // If the game is NOT active, this request is to PLAY AGAIN.
+        if (roomData.gameActive) {
+            handleGameOver(room, 'forfeit');
         } else {
             console.log(`Restarting new round for room ${room}.`);
-            let players = gameRooms[room].players;
+            let players = roomData.players;
+            if (Math.random() < 0.5) { [players[0], players[1]] = [players[1], players[0]]; }
+            roomData.players = players;
+            roomData.gameActive = true;
+            roomData.currentPlayer = players[0];
+            roomData.turnCount = 1;
 
-            if (Math.random() < 0.5) {
-                [players[0], players[1]] = [players[1], players[0]];
-            }
-            gameRooms[room].players = players;
-            gameRooms[room].gameActive = true; // New game is now active.
-
-            const playerX_id = players[0];
-            const playerO_id = players[1];
-
-            io.to(playerX_id).emit('restartGame', { symbol: 'X' });
-            io.to(playerO_id).emit('restartGame', { symbol: 'O' });
+            io.to(players[0]).emit('restartGame', { symbol: 'X' });
+            io.to(players[1]).emit('restartGame', { symbol: 'O' });
+            io.to(room).emit('newTurn', { currentPlayerId: players[0], symbol: 'X' });
         }
     });
     
-    socket.on('leaveGame', () => {
-        handlePlayerLeave(socket);
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`User disconnected abruptly: ${socket.id}`);
-        handlePlayerLeave(socket);
-    });
+    socket.on('leaveGame', () => { handlePlayerLeave(socket); });
+    socket.on('disconnect', () => { console.log(`User disconnected abruptly: ${socket.id}`); handlePlayerLeave(socket); });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
