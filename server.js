@@ -7,7 +7,7 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 10000;
-const TURN_DURATION_MS = 3000; // --- MODIFIED --- 3 seconds per turn
+const TURN_DURATION_MS = 3000;
 
 app.use(express.static(__dirname));
 
@@ -17,6 +17,12 @@ app.get('/', (req, res) => {
 
 let waitingPlayer = null;
 let gameRooms = {};
+
+// --- NEW --- Function to broadcast player count
+function broadcastPlayerCount() {
+    const playerCount = io.sockets.sockets.size;
+    io.emit('updatePlayerCount', playerCount);
+}
 
 function clearRoomTimer(room) {
     if (gameRooms[room] && gameRooms[room].timerId) {
@@ -91,10 +97,12 @@ function handlePlayerLeave(socket) {
     if (waitingPlayer && waitingPlayer.id === socket.id) {
         waitingPlayer = null;
     }
+    broadcastPlayerCount(); // --- NEW --- Update count on leave
 }
 
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
+    broadcastPlayerCount(); // --- NEW --- Update count on join
 
     socket.on('findGame', () => {
         if (waitingPlayer) {
