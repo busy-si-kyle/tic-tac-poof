@@ -2,7 +2,7 @@
 
 **Tic Tac Toe with a twist** — Play the classic game in single or multiplayer mode, with added difficulty levels and a sleek minimalist design.
 
-🔗 [Play Now](https://tic-tac-two-multiplayer.onrender.com)
+🔗 [Play Now](https://tic-tac-poof.onrender.com/)
 
 ---
 
