@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const difficultyControls = document.getElementById('difficulty-controls');
     const difficultyButtons = document.querySelectorAll('.difficulty-btn');
     const difficultySlider = document.querySelector('.difficulty-slider');
-    const onlineCounter = document.getElementById('online-counter'); // --- NEW ---
+    const onlineCounter = document.getElementById('online-counter');
     const body = document.body;
 
     // --- Game State Variables ---
@@ -42,7 +42,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleRestartGame(); });
     window.addEventListener('resize', updateSliderPosition);
 
-    // --- NEW / MODIFIED --- All logic for the slider is here
     function updateSliderPosition() {
         const activeButton = document.querySelector('.difficulty-btn.active');
         if (activeButton) {
@@ -57,11 +56,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const newDifficulty = e.target.getAttribute('data-difficulty');
         difficultyButtons.forEach(btn => btn.classList.remove('active'));
         e.target.classList.add('active');
-        updateSliderPosition(); // Move the slider
+        updateSliderPosition();
         setupNewGame({ isTwoPlayer: false, difficulty: newDifficulty });
     }
     
-    // --- STATE MANAGEMENT & MODE SWITCHING ---
     function leaveMultiplayer() {
         stopMoveTimer(); stopMultiplayerTimer();
         if (isMultiplayerMode) { socket.emit('leaveGame'); }
@@ -74,7 +72,6 @@ document.addEventListener('DOMContentLoaded', () => {
         isTwoPlayerMode = options.isTwoPlayer || false;
         if(options.difficulty) { difficulty = options.difficulty; }
 
-        // --- MODIFIED --- Control body classes for dynamic layout
         body.classList.toggle('two-player-mode', !isMultiplayerMode && isTwoPlayerMode);
         body.classList.toggle('single-player-mode', !isMultiplayerMode && !isTwoPlayerMode);
         body.classList.toggle('multiplayer-mode', isMultiplayerMode);
@@ -104,7 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else { playerSymbol = null; }
     }
 
-    // --- CORE GAMEPLAY ---
     function handleCellClick(e) {
         const clickedCell = e.target; const clickedCellIndex = parseInt(clickedCell.getAttribute('data-index'));
         if (gameState[clickedCellIndex] !== "" || !gameActive) return;
@@ -126,16 +122,27 @@ document.addEventListener('DOMContentLoaded', () => {
         if (removeSequenceStarted) { const opponent = symbol === 'X' ? 'O' : 'X'; if (playerMoves[opponent].length > 0) { const oldestMoveIndex = playerMoves[opponent].shift(); gameState[oldestMoveIndex] = ""; const oldestCell = document.querySelector(`[data-index='${oldestMoveIndex}']`); oldestCell.innerHTML = ""; oldestCell.classList.remove('X', 'O'); oldestCell.classList.add('fade-out'); setTimeout(() => oldestCell.classList.remove('fade-out'), 500); } }
     }
 
+    // --- MODIFIED --- This is the client-side part of the fix.
     function checkWin() {
-        let roundWon = false; let winningPlayer = null;
-        for (const condition of winningConditions) { const [a, b, c] = condition; if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) { roundWon = true; winningPlayer = gameState[a]; break; } }
+        let roundWon = false;
+        let winningPlayer = null;
+        for (const condition of winningConditions) {
+            const [a, b, c] = condition;
+            if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) {
+                roundWon = true;
+                winningPlayer = gameState[a];
+                break;
+            }
+        }
         if (roundWon) {
-            gameActive = false; stopMoveTimer(); stopMultiplayerTimer();
-            if (isMultiplayerMode) {
-                socket.emit('gameEnded', { room: gameRoom }); // Pass room here
-            } else {
-                 const message = (!isTwoPlayerMode && winningPlayer === playerSymbol) ? "You have won!" : (!isTwoPlayerMode) ? "Computer has won!" : `Player ${winningPlayer} has won!`;
-                 statusDisplay.innerHTML = message;
+            gameActive = false;
+            stopMoveTimer();
+            stopMultiplayerTimer();
+            // The client NO LONGER emits 'gameEnded'. It only handles local game modes.
+            // The server will determine the winner in multiplayer.
+            if (!isMultiplayerMode) {
+                const message = (!isTwoPlayerMode && winningPlayer === playerSymbol) ? "You have won!" : (!isTwoPlayerMode) ? "Computer has won!" : `Player ${winningPlayer} has won!`;
+                statusDisplay.innerHTML = message;
             }
         }
         return roundWon;
@@ -150,7 +157,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (isTwoPlayerMode && !isMultiplayerMode) { statusDisplay.innerHTML = `${currentPlayer}'s Turn`; }
     }
 
-    // --- Multiplayer Timer Visuals ---
     function startMultiplayerTimer(duration) {
         stopMultiplayerTimer();
         let timeLeft = duration / 1000;
@@ -162,25 +168,31 @@ document.addEventListener('DOMContentLoaded', () => {
             if (timeLeft <= 0) stopMultiplayerTimer();
         }, 1000);
     }
+
     function stopMultiplayerTimer() { clearInterval(multiplayerTimerInterval); multiplayerTimerInterval = null; if (timerDisplay) { timerDisplay.classList.remove('visible'); } }
 
-    // --- SOCKET.IO EVENT HANDLERS ---
     socket.on('waitingForOpponent', () => statusDisplay.innerHTML = "Waiting for an opponent...");
     socket.on('gameStart', (data) => { gameRoom = data.room; playerSymbol = data.symbol; isMultiplayerMode = true; internalRestart(); });
-    socket.on('moveMade', (move) => { if (!isMultiplayerMode) return; const cell = document.querySelector(`[data-index='${move.index}']`); makeMove(cell, move.index, move.symbol); if (!checkWin()){} });
+    
+    // --- MODIFIED --- Call checkWin() to update local state, but it won't emit anything.
+    socket.on('moveMade', (move) => {
+        if (!isMultiplayerMode) return;
+        const cell = document.querySelector(`[data-index='${move.index}']`);
+        makeMove(cell, move.index, move.symbol);
+        checkWin();
+    });
+
     socket.on('restartGame', (data) => { if (!isMultiplayerMode) return; playerSymbol = data.symbol; internalRestart(); });
     socket.on('newTurn', (data) => { if (!isMultiplayerMode) return; currentPlayer = data.symbol; const isMyTurn = socket.id === data.currentPlayerId; statusDisplay.innerHTML = isMyTurn ? `Your Turn (${currentPlayer})` : `Opponent's Turn (${currentPlayer})`; });
     socket.on('startTimer', (data) => { if (!isMultiplayerMode) return; startMultiplayerTimer(data.duration); });
     socket.on('gameOver', (data) => { if (!isMultiplayerMode) return; gameActive = false; stopMultiplayerTimer(); disableBoard(); const isWinner = socket.id === data.winnerId; let message = ""; switch(data.reason) { case 'win': message = isWinner ? "You have won!" : "You have lost!"; break; case 'timeout': message = isWinner ? "You won on time!" : "You lost on time."; break; case 'forfeit': message = isWinner ? "Opponent forfeited. You win!" : "You forfeited the match."; break; case 'disconnect': message = isWinner ? "Opponent disconnected. You win!" : "Game ended."; break; } statusDisplay.innerHTML = message; });
     
-    // --- NEW --- Listen for player count updates
     socket.on('updatePlayerCount', (count) => {
         if(onlineCounter) {
             onlineCounter.innerHTML = `Online: <span class="count">${count}</span>`;
         }
     });
 
-    // --- AI LOGIC & HELPERS ---
     function toggleTheme(){ body.classList.toggle('dark-mode'); themeToggleButton.querySelector('i').classList.toggle('fa-sun'); themeToggleButton.querySelector('i').classList.toggle('fa-moon'); }
     function startMoveTimer() { stopMoveTimer(); if (!isTwoPlayerMode && difficulty === 'hard' && currentPlayer === playerSymbol && gameActive) { const isFirstMoveAsX = (playerSymbol === 'X' && playerMoves['X'].length === 0); if (!isFirstMoveAsX) { timerDisplay.classList.add('visible'); let timeLeft = 3; timerDisplay.innerHTML = `Time left: ${timeLeft}`; moveTimer = setInterval(() => { timeLeft--; timerDisplay.innerHTML = `Time left: ${timeLeft}`; if (timeLeft <= 0) { stopMoveTimer(); gameActive = false; statusDisplay.innerHTML = "Time's up! Computer wins!"; disableBoard(); } }, 1000); } } }
     function stopMoveTimer(){ clearInterval(moveTimer); moveTimer = null; if(timerDisplay) { timerDisplay.classList.remove('visible'); } }
@@ -194,8 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function disableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'none'; }
     function enableBoard(){ document.getElementById('game-grid').style.pointerEvents = 'auto'; }
     
-    // --- INITIAL GAME SETUP ---
     setupNewGame({ isTwoPlayer: true });
-    updateSliderPosition(); // Call on initial load
+    updateSliderPosition();
 
 });
