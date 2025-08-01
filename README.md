@@ -1,4 +1,4 @@
-# 🎮 Tic Tac Two
+# 🎮 Tic Tac Poof
 
 **Tic Tac Toe with a twist** — Play the classic game in single or multiplayer mode, with added difficulty levels and a sleek minimalist design.
 
